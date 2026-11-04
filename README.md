@@ -147,7 +147,26 @@ One sequential client, a new connection per request, BCrypt cost 10, 200 request
 | `GET /v1/accounts/{id}/balance` | 93.5 ms | 95.9 ms | 96.6 ms |
 | `POST /v1/transfers` | 103.0 ms | 106.3 ms | 107.9 ms |
 
-The median BCrypt verification on the same machine was 89.4 ms at cost 10 and 1.7 ms at cost 4. Concurrent HTTP load has not been measured.
+The median BCrypt verification on the same machine was 89.4 ms at cost 10 and 1.7 ms at cost 4.
+
+### Concurrent HTTP load
+
+Command: `java scripts/HttpLoad.java` against the local instance
+Raw results: `benchmarks/results/http-load-20261104T060916Z.{csv,json}` (console log alongside)
+
+Prediction recorded before the run: at about 89 ms of CPU per password check, throughput should plateau below 12 / 0.089 = about 135 requests/s, probably near 100. Medians of 3 runs, after 100 warm-up requests. Runs had max(100, 50 × concurrency) requests each, over HTTP/1.1 with keep-alive connections reused, at BCrypt cost 10. There were 0 non-2xx responses in every run.
+
+| Concurrency | Balance req/s | Balance p50 / p99 | Transfer req/s | Transfer p50 / p99 |
+|---|---|---|---|---|
+| 1 | 10.7 | 93.7 / 95.9 ms | 10.0 | 100.1 / 105.3 ms |
+| 4 | 43.2 | 92.7 / 94.5 ms | 39.9 | 100.4 / 105.9 ms |
+| 8 | 85.5 | 93.5 / 99.8 ms | 78.2 | 101.3 / 120.2 ms |
+| 16 | 119.1 | 134.0 / 183.9 ms | 103.6 | 150.6 / 227.4 ms |
+| 32 | 120.1 | 264.9 / 370.4 ms | 105.3 | 297.0 / 526.2 ms |
+
+The prediction held. Throughput scaled linearly to 8 clients and then plateaued at about 120 balance reads or 105 transfers per second. Past that point extra clients only add queueing: p50 latency doubles from 16 to 32 clients. The client, the server and the database VM all shared the same 12 cores.
+
+**Outbox under load.** The transfer runs left 8,680 events pending. Over the next 15 minutes the single poller delivered them at a steady 6.8 events per second, and 2,545 were still pending when sampling stopped. No event reached FAILED. This run's raw JSON shows `drainSeconds: -1` and `averageDrainRatePerSecond: 0.0`, because the backlog did not drain within the window and the script's earlier summary logic had no rate for that case. The 6.8 per second comes from the JSON's own samples: (8,680 − 2,545) / 900.9 s. The script now reports the window rate directly.
 
 ## Observations
 
@@ -155,7 +174,7 @@ The median BCrypt verification on the same machine was 89.4 ms at cost 10 and 1.
 - **Password hashing dominates the HTTP path.** At cost 10, about 89 ms of a 94 ms balance read is password verification. That is why ledger-path and HTTP-path figures answer different questions and are reported separately.
 - **Spring Security was silently raising the hash cost.** `InMemoryUserDetailsManager` also acts as a password-upgrade service, so after the first login Spring re-hashed the configured cost-4 test hashes at cost 10. Every request then paid about 93 ms, including each outbox delivery. The user store now exposes lookup only, and `HttpSecurityTest` guards this. Deliveries in the test profile dropped to 4–8 ms.
 - **Testcontainers disables fsync by default.** The first benchmark run recorded `fsync=off` in its environment block, so it was discarded and the container now starts with durability on. Single-thread throughput was slightly higher with fsync on. That suggests flushes inside the Docker Desktop VM are cheap, so commit cost here probably understates a real server.
-- **Outbox delivery would fall behind at these rates (computed, not measured).** Each delivery authenticates with the publisher's service credential, so at cost 10 it pays about 89 ms of BCrypt on the consumer side. That caps one poller at roughly 11 events per second, far below the 350–1,330 transfers per second measured on the ledger path. Under sustained load the outbox backlog would keep growing. A short-lived token or mutual TLS for the service credential is the usual remedy.
+- **The outbox falls far behind under load (measured).** Each delivery authenticates with the publisher's service credential, so it pays about 89 ms of BCrypt on the consumer side. The poller also waits 1 second after each batch of 20. That gives about 20 / (20 × 0.09 s + 1 s) ≈ 7 events per second, and 6.8 per second was measured while 105 transfers per second were arriving. A sustained load therefore grows the backlog without limit. The remedies are cheaper service authentication (a short-lived token or mutual TLS), polling again immediately when a batch was full, or more than one poller with a claim protocol.
 - **Same-key waiters hold pool connections.** With 20 same-key requests holding or queued for all 10 connections, an unrelated balance read waited 160–171 ms behind them in the tests. That is a test-harness wait, not a performance figure, but it shows retries are not free.
 
 ## Limitations
@@ -165,7 +184,7 @@ The median BCrypt verification on the same machine was 89.4 ms at cost 10 and 1.
 - Demo authentication only: stateless HTTP Basic with users from configuration, on loopback, no TLS. Each request pays the configured password-hash cost, and so does each outbox delivery to the consumer.
 - The consumer is a demonstration running in the same process.
 - Crashes are modelled by exceptions at named checkpoints that roll the transaction back, not by killing processes. Power-loss behaviour is not tested.
-- Measurements come from one Mac with PostgreSQL inside the Docker Desktop VM. They are not capacity claims, and concurrent HTTP load is unmeasured.
+- Measurements come from one Mac, with the load client, application and PostgreSQL (inside the Docker Desktop VM) sharing its cores. They are not capacity claims.
 - The M4 Pro has 8 performance and 4 efficiency cores, and macOS chose where threads ran. Results at higher concurrency may include efficiency-core time.
 - Lock waits are counted only when they time out (`ledgercore.transient.failures`). There is no lock-wait duration metric.
 - Observability is metrics plus request and event IDs in every log line. There is no distributed tracing.

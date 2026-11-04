@@ -77,7 +77,8 @@ Finding fixed during this stage: every authenticated request cost about 93 ms, i
 - [x] Docker Compose for local PostgreSQL; documented demo credentials. Smoke-tested: `docker compose up`, `scripts/run-local.sh`, `scripts/demo.sh` all worked end to end (transcript: `benchmarks/results/demo-run-20261104.txt`)
 - [x] Metrics: replays, rejections, transient failures (lock timeouts, deadlocks), reconciliation runs and failures, failed and pending events, oldest undelivered event, plus HikariCP pool and HTTP timers
 - [x] Ledger-path benchmark writing raw results with environment details: `benchmarks/results/ledger-path-20261104T051434Z.json`
-- [x] HTTP-path measurement, single sequential client: `benchmarks/results/http-path-20261104T050723Z.csv`. Concurrent HTTP load is still unmeasured.
+- [x] HTTP-path measurement, single sequential client: `benchmarks/results/http-path-20261104T050723Z.csv`
+- [x] Concurrent HTTP load (1 to 32 clients) and outbox drain under load: `benchmarks/results/http-load-20261104T060916Z.json`. Plateau of about 120 balance reads or 105 transfers per second (password checks); outbox drained at 6.8 events/s with no FAILED events.
 
 Evidence: `mvn verify`, 91 tests, 0 failures, 0 skipped, with `fsync=on`.
 A first benchmark run was discarded because Testcontainers starts PostgreSQL with `fsync=off` by default; the container now forces durability on.
