@@ -1,0 +1,77 @@
+# Local defaults. Credentials and password hashes come from the environment, never from this file.
+spring:
+  application:
+    name: ledgercore
+  datasource:
+    # The application connects as ledger_app, which cannot update or delete journal history.
+    url: ${LEDGERCORE_DB_URL:jdbc:postgresql://127.0.0.1:5432/ledgercore}
+    username: ${LEDGERCORE_DB_APP_USER:ledger_app}
+    password: ${LEDGERCORE_DB_APP_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      data-source-properties:
+        # Bounded waits: a lock wait longer than 2 s fails with a retryable error instead of hanging.
+        options: "-c lock_timeout=2s -c statement_timeout=5s -c transaction_timeout=10s"
+  flyway:
+    # Migrations run as the schema owner; the owner role is not used for requests.
+    url: ${LEDGERCORE_DB_URL:jdbc:postgresql://127.0.0.1:5432/ledgercore}
+    user: ${LEDGERCORE_DB_OWNER_USER:ledger_owner}
+    password: ${LEDGERCORE_DB_OWNER_PASSWORD:}
+
+logging:
+  pattern:
+    # Every log line carries the request ID (HTTP requests) or event ID (outbox deliveries) from the MDC.
+    level: "%5p [%X{requestId:-}%X{eventId:-}]"
+
+server:
+  address: 127.0.0.1
+  port: ${LEDGERCORE_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,controlAccount
+
+ledgercore:
+  limits:
+    max-amount-minor: 1000000000000
+    max-request-bytes: 16384
+    default-page-size: 50
+    max-page-size: 100
+    max-idempotency-key-length: 128
+  security:
+    # Each username maps to an immutable principal subject seeded by migration V2.
+    # Hashes use Spring's delegating format, for example {bcrypt}$2a$10$...
+    users:
+      - username: customer-a
+        subject: "local:customer-a"
+        password-hash: ${LEDGERCORE_CUSTOMER_A_PASSWORD_HASH:}
+      - username: customer-b
+        subject: "local:customer-b"
+        password-hash: ${LEDGERCORE_CUSTOMER_B_PASSWORD_HASH:}
+      - username: demo-admin
+        subject: "local:demo-admin"
+        password-hash: ${LEDGERCORE_ADMIN_PASSWORD_HASH:}
+  outbox:
+    poller-enabled: true
+    poll-interval: 1s
+    batch-size: 20
+    delivery-timeout: 3s
+    max-attempts: 8
+    backoff-base: 1s
+    backoff-max: 60s
+    # Empty means this application's own demonstration consumer on loopback.
+    consumer-url: ${LEDGERCORE_CONSUMER_URL:}
+    publisher-username: outbox-publisher
+    publisher-password: ${LEDGERCORE_PUBLISHER_PASSWORD:}
+  demo-consumer:
+    username: outbox-publisher
+    password-hash: ${LEDGERCORE_PUBLISHER_PASSWORD_HASH:}

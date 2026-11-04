@@ -1,0 +1,23 @@
+# Local PostgreSQL for running LedgerCore. Tests do not use this; they start their own container.
+services:
+  postgres:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: ledgercore
+      POSTGRES_USER: ${LEDGERCORE_DB_OWNER_USER:?copy .env.example to .env}
+      POSTGRES_PASSWORD: ${LEDGERCORE_DB_OWNER_PASSWORD:?copy .env.example to .env}
+      LEDGERCORE_DB_APP_PASSWORD: ${LEDGERCORE_DB_APP_PASSWORD:?copy .env.example to .env}
+    ports:
+      # Loopback only, on a non-default port to avoid clashing with a local PostgreSQL.
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+      - ledgercore-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d ledgercore"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  ledgercore-data:

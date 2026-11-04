@@ -1,0 +1,31 @@
+
+== Create two accounts and fund one with 10,000 minor units (Rs 100.00)
+source 2be15cbb-c72c-4964-b27a-feb373390d53: {"posted":"10000","reserved":"0","available":"10000"}
+
+== Transfer 3,000 with Idempotency-Key transfer-1793768818
+201 {"journalId":"e12ea720-4b9d-4000-a540-258e6ede6f32","kind":"TRANSFER","amountMinor":"3000","currency":"INR","createdAt":"2026-11-04T05:06:59.578406Z","requestId":"9fdf5305-5a84-4797-bb75-5a976d7dced9"}
+
+== Retry the same request with the same key (as after a lost response): same journal, no second movement
+201 {"journalId":"e12ea720-4b9d-4000-a540-258e6ede6f32","kind":"TRANSFER","amountMinor":"3000","currency":"INR","createdAt":"2026-11-04T05:06:59.578406Z","requestId":"9fdf5305-5a84-4797-bb75-5a976d7dced9"}
+source: {"posted":"7000","reserved":"0","available":"7000"}
+
+== Reuse the key with a different amount: 409, nothing moves
+409 {"code":"IDEMPOTENCY_KEY_REUSED","message":"This Idempotency-Key was already used for a different request.","requestId":"9d6c6496-d4e5-4942-b9a3-daeb4034e598"}
+
+== Spend more than is available: 422, stored against its key
+422 {"code":"INSUFFICIENT_AVAILABLE_FUNDS","message":"Available funds do not cover this transfer.","requestId":"ae11175a-0112-461a-9e01-a800c84bc11f"}
+
+== Hold 2,000, then capture it
+after hold: {"posted":"7000","reserved":"2000","available":"5000"}
+201 {"journalId":"e849f94c-b9b0-47b3-a540-11f2666d8189","kind":"CAPTURE","amountMinor":"2000","currency":"INR","createdAt":"2026-11-04T05:07:00.372807Z","requestId":"0c918796-6582-4727-b4d6-7b9ed2bb4acf"}
+after capture: {"posted":"5000","reserved":"0","available":"5000"}
+
+== Customer B cannot see customer A's account (same 404 as a missing one)
+{"code":"RESOURCE_NOT_FOUND","message":"The resource does not exist or is not accessible.","requestId":"99ce09d5-f2db-43b8-a239-9a6f6a591823"}
+
+== Reconciliation (administrator)
+{"consistent":true,"problems":[]}
+
+== Outbox: events are delivered by the poller within a few seconds
+published events on first page: 6
+failed events: 0
