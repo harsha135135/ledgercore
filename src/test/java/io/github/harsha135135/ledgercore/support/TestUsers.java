@@ -21,6 +21,8 @@ public final class TestUsers {
 	public static final String UNMAPPED = "unmapped-user";
 	/** The outbox publisher's service credential, accepted only by the demonstration consumer. */
 	public static final String PUBLISHER = "outbox-publisher";
+	/** The Prometheus scrape credential: may read /actuator/prometheus only. */
+	public static final String DIAGNOSTICS = "diagnostics-reader";
 
 	public static final UUID CUSTOMER_A_ID = UUID.fromString("a0000000-0000-4000-8000-00000000000a");
 	public static final UUID CUSTOMER_B_ID = UUID.fromString("b0000000-0000-4000-8000-00000000000b");
@@ -32,6 +34,7 @@ public final class TestUsers {
 	private static final String HASH_ADMIN = "{bcrypt}" + ENCODER.encode(password(ADMIN));
 	private static final String HASH_UNMAPPED = "{bcrypt}" + ENCODER.encode(password(UNMAPPED));
 	private static final String HASH_PUBLISHER = "{bcrypt}" + ENCODER.encode(password(PUBLISHER));
+	private static final String HASH_DIAGNOSTICS = "{bcrypt}" + ENCODER.encode(password(DIAGNOSTICS));
 
 	private TestUsers() {
 	}
@@ -50,6 +53,8 @@ public final class TestUsers {
 		registry.add("ledgercore.demo-consumer.password-hash", () -> HASH_PUBLISHER);
 		registry.add("ledgercore.outbox.publisher-username", () -> PUBLISHER);
 		registry.add("ledgercore.outbox.publisher-password", () -> password(PUBLISHER));
+		registry.add("ledgercore.diagnostics.username", () -> DIAGNOSTICS);
+		registry.add("ledgercore.diagnostics.password-hash", () -> HASH_DIAGNOSTICS);
 	}
 
 	private static void addUser(DynamicPropertyRegistry registry, int index, String username, String subject,

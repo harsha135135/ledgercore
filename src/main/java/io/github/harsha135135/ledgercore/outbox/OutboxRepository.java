@@ -49,9 +49,12 @@ public class OutboxRepository {
 				+ "WHERE state = 'PENDING' AND attempts >= ?", maxAttempts);
 	}
 
-	/** Records a successful attempt. A no-op if an operator changed the event meanwhile. */
-	public void markPublished(UUID eventId) {
-		jdbc.update("UPDATE outbox_events SET state = 'PUBLISHED', published_at = now(), attempts = attempts + 1, "
+	/**
+	 * Records a successful attempt. A no-op if an operator changed the event meanwhile; returns 1
+	 * when this call recorded the PENDING to PUBLISHED transition, otherwise 0.
+	 */
+	public int markPublished(UUID eventId) {
+		return jdbc.update("UPDATE outbox_events SET state = 'PUBLISHED', published_at = now(), attempts = attempts + 1, "
 				+ "total_attempts = total_attempts + 1, last_error_code = NULL WHERE id = ? AND state = 'PENDING'",
 				eventId);
 	}

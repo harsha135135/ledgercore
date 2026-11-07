@@ -1,6 +1,7 @@
 package io.github.harsha135135.ledgercore.outbox;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 import io.github.harsha135135.ledgercore.config.LedgerProperties;
@@ -27,11 +28,14 @@ public class OutboxPoller {
 	private final OutboxRepository outbox;
 	private final EventPublisher publisher;
 	private final LedgerProperties.Outbox settings;
+	private final OutboxDiagnostics diagnostics;
 
-	public OutboxPoller(OutboxRepository outbox, EventPublisher publisher, LedgerProperties properties) {
+	public OutboxPoller(OutboxRepository outbox, EventPublisher publisher, LedgerProperties properties,
+			OutboxDiagnostics diagnostics) {
 		this.outbox = outbox;
 		this.publisher = publisher;
 		this.settings = properties.outbox();
+		this.diagnostics = diagnostics;
 	}
 
 	@Scheduled(fixedDelayString = "${ledgercore.outbox.poll-interval}")
@@ -43,6 +47,8 @@ public class OutboxPoller {
 
 	/** One polling pass. Synchronized so a manual pass can never overlap the scheduled one. */
 	public synchronized PollSummary pollOnce() {
+		Instant passStartedAt = Instant.now();
+		long passStartNanos = System.nanoTime();
 		int stranded = outbox.failExhaustedPending(settings.maxAttempts());
 		List<OutboxEvent> due = outbox.findDue(settings.maxAttempts(), settings.batchSize());
 		int published = 0;
@@ -50,10 +56,14 @@ public class OutboxPoller {
 		for (OutboxEvent event : due) {
 			MDC.put("eventId", event.id().toString());
 			try {
+				Instant startedAt = Instant.now();
+				long startNanos = System.nanoTime();
 				DeliveryResult result = publisher.send(event);
+				long durationNanos = System.nanoTime() - startNanos;
 				if (result.acknowledged()) {
-					outbox.markPublished(event.id());
+					boolean recorded = outbox.markPublished(event.id()) == 1;
 					published++;
+					diagnostics.deliveryAttempt(event, startedAt, durationNanos, result, recorded);
 				}
 				else {
 					int attemptNumber = event.attempts() + 1;
@@ -61,13 +71,16 @@ public class OutboxPoller {
 							backoffAfter(attemptNumber));
 					failed++;
 					log.warn("Outbox delivery attempt {} failed: {}", attemptNumber, result.errorCode());
+					diagnostics.deliveryAttempt(event, startedAt, durationNanos, result, false);
 				}
 			}
 			finally {
 				MDC.remove("eventId");
 			}
 		}
-		return new PollSummary(due.size(), published, failed, stranded);
+		PollSummary summary = new PollSummary(due.size(), published, failed, stranded);
+		diagnostics.pollPass(passStartedAt, System.nanoTime() - passStartNanos, summary);
+		return summary;
 	}
 
 	/** Exponential backoff: base, 2 x base, 4 x base ... capped at the configured maximum. */

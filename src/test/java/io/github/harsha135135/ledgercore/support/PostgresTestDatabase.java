@@ -1,7 +1,11 @@
 package io.github.harsha135135.ledgercore.support;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -17,6 +21,12 @@ public final class PostgresTestDatabase {
 
 	public static final String APP_USER = "ledger_app";
 	public static final String APP_PASSWORD = "ledger-app-test-password";
+	public static final String DIAG_READER_USER = "ledger_diag_reader";
+	public static final String DIAG_READER_PASSWORD = "ledger-diag-reader-test-password";
+	/** The repository's provisioning SQL, the same file scripts/provision-diagnostics.sh runs. */
+	public static final Path PROVISIONING_SQL = Path.of("docker/diagnostics/provision-diagnostics.sql");
+
+	private static boolean diagnosticsProvisioned;
 
 	private static final PostgreSQLContainer CONTAINER = startContainer();
 
@@ -65,6 +75,42 @@ public final class PostgresTestDatabase {
 
 	public static String imageName() {
 		return CONTAINER.getDockerImageName();
+	}
+
+	/**
+	 * Creates the diagnostics login by running the repository's provisioning SQL as the owner. It
+	 * needs migration V6, so call it only after the Spring context (and so Flyway) has started.
+	 */
+	public static synchronized void provisionDiagnosticsReader() throws SQLException, IOException {
+		if (!diagnosticsProvisioned) {
+			try (Connection owner = openOwnerConnection()) {
+				runProvisioning(owner, DIAG_READER_PASSWORD);
+			}
+			diagnosticsProvisioned = true;
+		}
+	}
+
+	/** Runs the provisioning SQL on {@code connection}, passing the password as a bind parameter. */
+	public static void runProvisioning(Connection connection, String readerPassword) throws SQLException, IOException {
+		try (PreparedStatement setPassword = connection
+			.prepareStatement("SELECT set_config('ledgercore.diag_reader_password', ?, false)")) {
+			setPassword.setString(1, readerPassword);
+			setPassword.execute();
+		}
+		try (Statement statement = connection.createStatement()) {
+			statement.execute(Files.readString(PROVISIONING_SQL));
+		}
+	}
+
+	/** A connection as the diagnostics login, with only the settings the login itself carries. */
+	public static Connection openDiagnosticsReaderConnection() throws SQLException {
+		return DriverManager.getConnection(jdbcUrl(), DIAG_READER_USER, DIAG_READER_PASSWORD);
+	}
+
+	/** A connection as the owner to another database in the same container. */
+	public static Connection openOwnerConnection(String database) throws SQLException {
+		String url = jdbcUrl().replaceFirst("/[^/?]+(\\?|$)", "/" + database + "$1");
+		return DriverManager.getConnection(url, ownerUser(), ownerPassword());
 	}
 
 }

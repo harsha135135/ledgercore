@@ -61,6 +61,22 @@ Stop with Ctrl+C, then run `docker compose down -v`.
 
 Demo logins are `customer-a`, `customer-b` and `demo-admin`, with the passwords listed in `.env.example`. The service binds to loopback only and uses stateless HTTP Basic for a CLI or API client.
 
+### Read-only diagnostics (optional)
+
+These additions let a separate diagnostic tool, IncidentLens, observe LedgerCore without ledger access. None of them changes how money moves.
+
+- **Prometheus export:** `/actuator/prometheus`, with fixed latency buckets. Only the `diagnostics-reader` login (`LEDGERCORE_DIAGNOSTICS_PASSWORD_HASH`) can read it; that login gets 403 everywhere else.
+- **Diagnostic records:** set `LEDGERCORE_LOG_FILE` and `LEDGERCORE_DIAGNOSTICS_LOG_LEVEL=INFO` to get a JSON log file (Elastic Common Schema, UTC). It holds one record per outbox delivery attempt and per non-empty polling pass, plus a startup configuration record. Records carry IDs, times and results, never event payloads.
+- **Database access:**
+  - **What V6 adds:** migration V6 adds the payload-free view `diagnostics.outbox_event_times`, two indexes, and `diagnostics.blocking_sessions()`.
+  - **The login:** `ledger_diag_reader` is read-only, with a 2 s statement timeout. It is created after V6 with:
+
+    ```sh
+    ./scripts/provision-diagnostics.sh    # needs LEDGERCORE_DIAG_READER_PASSWORD in .env; safe to rerun
+    ```
+
+  - **Large existing databases:** V6's index builds block outbox inserts while they run, so upgrade a large database in a quiet period.
+
 ## API
 
 All mutations require an `Idempotency-Key` header. Money is a decimal string of minor units (`"12500"` means ₹125.00).
@@ -187,7 +203,8 @@ The prediction held. Throughput scaled linearly to 8 clients and then plateaued 
 - Measurements come from one Mac, with the load client, application and PostgreSQL (inside the Docker Desktop VM) sharing its cores. They are not capacity claims.
 - The M4 Pro has 8 performance and 4 efficiency cores, and macOS chose where threads ran. Results at higher concurrency may include efficiency-core time.
 - Lock waits are counted only when they time out (`ledgercore.transient.failures`). There is no lock-wait duration metric.
-- Observability is metrics plus request and event IDs in every log line. There is no distributed tracing.
+- Observability is metrics plus request and event IDs in every log line, and the optional read-only diagnostics above. There is no distributed tracing.
+- Any ledger login, including a customer, can read `/actuator/metrics`. The narrower diagnostics login exists for the Prometheus export.
 - The specification's separate backup-and-restore demonstration has not been done.
 
 ## Layout

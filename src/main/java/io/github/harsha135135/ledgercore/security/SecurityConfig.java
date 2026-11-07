@@ -35,6 +35,8 @@ public class SecurityConfig {
 	static final String LEDGER_USER = "LEDGER_USER";
 	/** The outbox publisher's service credential: may call the consumer, nothing else. */
 	static final String EVENT_PUBLISHER = "EVENT_PUBLISHER";
+	/** The diagnostics scrape credential: may read /actuator/prometheus, nothing else. */
+	static final String DIAGNOSTICS_READER = "DIAGNOSTICS_READER";
 
 	private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
@@ -56,6 +58,8 @@ public class SecurityConfig {
 				.accessDeniedHandler(denied))
 			.authorizeHttpRequests(requests -> requests
 				.requestMatchers("/actuator/health", "/actuator/health/**", "/error").permitAll()
+				// Before the /actuator/** rule: only the diagnostics login may read the Prometheus export.
+				.requestMatchers("/actuator/prometheus").hasAuthority(DIAGNOSTICS_READER)
 				.requestMatchers("/v1/**", "/actuator/**").hasAuthority(LEDGER_USER)
 				.requestMatchers("/demo-consumer/**").hasAuthority(EVENT_PUBLISHER)
 				.anyRequest().denyAll());
@@ -90,6 +94,13 @@ public class SecurityConfig {
 		}
 		else {
 			log.warn("No demonstration consumer credential configured; outbox deliveries will be rejected.");
+		}
+		LedgerProperties.Diagnostics diagnostics = properties.diagnostics();
+		if (diagnostics != null && diagnostics.passwordHash() != null && !diagnostics.passwordHash().isBlank()) {
+			users.add(User.withUsername(diagnostics.username())
+				.password(diagnostics.passwordHash())
+				.authorities(DIAGNOSTICS_READER)
+				.build());
 		}
 		InMemoryUserDetailsManager manager = new InMemoryUserDetailsManager(users);
 		// Expose only lookup. InMemoryUserDetailsManager also implements UserDetailsPasswordService,

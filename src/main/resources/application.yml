@@ -22,6 +22,20 @@ logging:
   pattern:
     # Every log line carries the request ID (HTTP requests) or event ID (outbox deliveries) from the MDC.
     level: "%5p [%X{requestId:-}%X{eventId:-}]"
+  # Optional JSON log file (Elastic Common Schema) for diagnostics. Off unless LEDGERCORE_LOG_FILE is
+  # set; console output is unchanged either way.
+  file:
+    name: ${LEDGERCORE_LOG_FILE:}
+  structured:
+    format:
+      file: ecs
+  logback:
+    rollingpolicy:
+      # Rolled files stay uncompressed, so a log reader can finish a file after it is rotated.
+      file-name-pattern: ${LEDGERCORE_LOG_FILE:ledgercore.log}.%d{yyyy-MM-dd}.%i
+  level:
+    # Delivery-attempt, poll-batch and startup-config records. Off by default; set to INFO to record them.
+    ledgercore.diagnostics: ${LEDGERCORE_DIAGNOSTICS_LOG_LEVEL:OFF}
 
 server:
   address: 127.0.0.1
@@ -31,7 +45,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,metrics,prometheus
+  metrics:
+    distribution:
+      # Fixed histogram buckets (exported in seconds), so latency percentiles can be computed from
+      # bucket counts instead of averaging per-instance summaries.
+      slo:
+        "[http.server.requests]": 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1s,2500ms,5s,10s
+        "[ledgercore.outbox.delivery]": 5ms,10ms,25ms,50ms,100ms,250ms,500ms,1s,2s,3s,5s
+        "[ledgercore.outbox.poll]": 10ms,50ms,100ms,250ms,500ms,1s,2500ms,5s,10s,30s,60s
   endpoint:
     health:
       probes:
@@ -75,3 +97,9 @@ ledgercore:
   demo-consumer:
     username: outbox-publisher
     password-hash: ${LEDGERCORE_PUBLISHER_PASSWORD_HASH:}
+  diagnostics:
+    # Read-only scrape login for /actuator/prometheus. It cannot call /v1/** or other actuator endpoints.
+    username: diagnostics-reader
+    password-hash: ${LEDGERCORE_DIAGNOSTICS_PASSWORD_HASH:}
+    # Source revision reported in the startup config record, passed in by whoever launches the jar.
+    revision: ${LEDGERCORE_REVISION:unknown}

@@ -11,7 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Limits are demo product choices, not measured capacity.
  */
 @ConfigurationProperties("ledgercore")
-public record LedgerProperties(Limits limits, Security security, Outbox outbox, DemoConsumer demoConsumer) {
+public record LedgerProperties(Limits limits, Security security, Outbox outbox, DemoConsumer demoConsumer,
+		Diagnostics diagnostics) {
 
 	public record Limits(
 			long maxAmountMinor,
@@ -60,6 +61,13 @@ public record LedgerProperties(Limits limits, Security security, Outbox outbox, 
 
 	/** The demonstration consumer's service credential, separate from the ledger users. */
 	public record DemoConsumer(String username, String passwordHash) {
+	}
+
+	/**
+	 * Read-only diagnostics: the Prometheus scrape login (separate from the ledger users, so it never
+	 * receives ledger access) and the source revision reported in the startup config record.
+	 */
+	public record Diagnostics(String username, String passwordHash, String revision) {
 	}
 
 }

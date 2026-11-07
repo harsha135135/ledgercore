@@ -52,19 +52,19 @@ public class EventPublisher {
 			HttpResponse<Void> response = http.send(request, HttpResponse.BodyHandlers.discarding());
 			int status = response.statusCode();
 			if (status >= 200 && status < 300) {
-				return DeliveryResult.success();
+				return DeliveryResult.success(status);
 			}
-			return DeliveryResult.failure("HTTP_" + status);
+			return DeliveryResult.failure("HTTP_" + status, status);
 		}
 		catch (HttpTimeoutException ex) {
-			return DeliveryResult.failure("TIMEOUT");
+			return DeliveryResult.failure("TIMEOUT", DeliveryResult.NO_RESPONSE);
 		}
 		catch (IOException ex) {
-			return DeliveryResult.failure("CONNECTION_FAILED");
+			return DeliveryResult.failure("CONNECTION_FAILED", DeliveryResult.NO_RESPONSE);
 		}
 		catch (InterruptedException ex) {
 			Thread.currentThread().interrupt();
-			return DeliveryResult.failure("INTERRUPTED");
+			return DeliveryResult.failure("INTERRUPTED", DeliveryResult.NO_RESPONSE);
 		}
 	}
 
@@ -82,15 +82,20 @@ public class EventPublisher {
 		return "Basic " + Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
 	}
 
-	/** Acknowledged, or failed with a short error category stored on the event. */
-	public record DeliveryResult(boolean acknowledged, String errorCode) {
+	/**
+	 * Acknowledged, or failed with a short error category stored on the event. The HTTP status is
+	 * kept for diagnostics; it is {@link #NO_RESPONSE} when no response arrived.
+	 */
+	public record DeliveryResult(boolean acknowledged, String errorCode, int httpStatus) {
 
-		static DeliveryResult success() {
-			return new DeliveryResult(true, null);
+		public static final int NO_RESPONSE = 0;
+
+		static DeliveryResult success(int httpStatus) {
+			return new DeliveryResult(true, null, httpStatus);
 		}
 
-		static DeliveryResult failure(String errorCode) {
-			return new DeliveryResult(false, errorCode);
+		static DeliveryResult failure(String errorCode, int httpStatus) {
+			return new DeliveryResult(false, errorCode, httpStatus);
 		}
 	}
 
